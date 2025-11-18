@@ -2,9 +2,20 @@
 
 A networked implementation of the classic Pong game using Python and Pygame, featuring client-server architecture for multiplayer gameplay.
 
+# Contact Info
+============
+
+Group Members & Email Addresses:
+
+    Person 1, person1@uky.edu
+    Person 2, person2@uky.edu
+
+
+Github Link: 
+
 ## Requirements
 
-- Python 3.7 or higher
+- Python 3.7 or higher (3.11 is ideal to prevent error with getting requirements to build wheel)
 - Pygame 2.5.2
 - Network connectivity between server and clients
 
@@ -14,6 +25,14 @@ A networked implementation of the classic Pong game using Python and Pygame, fea
 2. Install the required dependencies:
 ```bash
 pip install -r requirements.txt
+
+or 
+
+py -3 -m pip install -r requirements.txt
+
+Or, if `python` is on your PATH:
+
+python -m pip install -r requirements.txt
 ```
 
 ## Running the Game
