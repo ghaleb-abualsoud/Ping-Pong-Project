@@ -1,34 +1,45 @@
 # =================================================================================================
-# Contributing Authors:	    <Anyone who touched the code>
-# Email Addresses:          <Your uky.edu email addresses>
-# Date:                     <The date the file was last edited>
-# Purpose:                  <How this file contributes to the project>
-# Misc:                     <Not Required.  Anything else you might want to include>
+# Contributing Authors:	    Example Author
+# Email Addresses:          example@uky.edu
+# Date:                     November 6, 2025
+# Purpose:                  Client implementation for the multiplayer Pong game. This client handles
+#                          user input, displays the game state, and communicates with the server.
 # =================================================================================================
 
 import pygame
 import tkinter as tk
 import sys
 import socket
+import json
+import os
+from typing import Optional, Dict, Any, Tuple
 
 from assets.code.helperCode import *
 
-# This is the main game loop.  For the most part, you will not need to modify this.  The sections
-# where you should add to the code are marked.  Feel free to change any part of this project
-# to suit your needs.
-def playGame(screenWidth:int, screenHeight:int, playerPaddle:str, client:socket.socket) -> None:
+# Get the directory where the script is located
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Author:  Example Author
+# Purpose: Main game loop that handles game display and network communication
+# Pre:     Connection to server established, screen dimensions and paddle side assigned
+# Post:    Game runs until completion or user exits
+def playGame(screenWidth: int, screenHeight: int, playerPaddle: str, client: socket.socket) -> None:
+    """Main game loop handling both game logic and network communication."""
     
     # Pygame inits
     pygame.mixer.pre_init(44100, -16, 2, 2048)
     pygame.init()
 
+    # Declare score variables that will be updated from network
+    global lScore, rScore
+    
     # Constants
     WHITE = (255,255,255)
     clock = pygame.time.Clock()
-    scoreFont = pygame.font.Font("./assets/fonts/pong-score.ttf", 32)
-    winFont = pygame.font.Font("./assets/fonts/visitor.ttf", 48)
-    pointSound = pygame.mixer.Sound("./assets/sounds/point.wav")
-    bounceSound = pygame.mixer.Sound("./assets/sounds/bounce.wav")
+    scoreFont = pygame.font.Font(os.path.join(SCRIPT_DIR, "assets", "fonts", "pong-score.ttf"), 32)
+    winFont = pygame.font.Font(os.path.join(SCRIPT_DIR, "assets", "fonts", "visitor.ttf"), 48)
+    pointSound = pygame.mixer.Sound(os.path.join(SCRIPT_DIR, "assets", "sounds", "point.wav"))
+    bounceSound = pygame.mixer.Sound(os.path.join(SCRIPT_DIR, "assets", "sounds", "bounce.wav"))
 
     # Display objects
     screen = pygame.display.set_mode((screenWidth, screenHeight))
@@ -80,11 +91,45 @@ def playGame(screenWidth:int, screenHeight:int, playerPaddle:str, client:socket.
                 playerPaddleObj.moving = ""
 
         # =========================================================================================
-        # Your code here to send an update to the server on your paddle's information,
-        # where the ball is and the current score.
-        # Feel free to change when the score is updated to suit your needs/requirements
-        
-        
+        # Send game state update to server
+        try:
+            # Prepare update for server
+            game_update = {
+                "paddle_pos": playerPaddleObj.rect.y,
+                "paddle_moving": playerPaddleObj.moving,
+                "sync": sync
+            }
+            
+            # Send update to server
+            client.send(json.dumps(game_update).encode())
+            
+            # Receive server response
+            data = client.recv(1024).decode()
+            server_state = json.loads(data)
+            
+            # Update opponent paddle position
+            opponentPaddleObj.rect.y = server_state["paddles"]["right" if playerPaddle == "left" else "left"]["position"]
+            opponentPaddleObj.moving = server_state["paddles"]["right" if playerPaddle == "left" else "left"]["moving"]
+            
+            # Update ball position if we're behind
+            if server_state["sync"] > sync:
+                ball.rect.x = server_state["ball"]["x"]
+                ball.rect.y = server_state["ball"]["y"]
+                ball.xVel = server_state["ball"]["x_vel"]
+                ball.yVel = server_state["ball"]["y_vel"]
+                sync = server_state["sync"]
+                
+                # Update scores from server state
+                if "scores" in server_state:
+                    if lScore != server_state["scores"]["left"] or rScore != server_state["scores"]["right"]:
+                        lScore = server_state["scores"]["left"]
+                        rScore = server_state["scores"]["right"]
+                        pointSound.play()
+                    
+        except Exception as e:
+            print(f"Network error: {str(e)}")
+            pygame.quit()
+            sys.exit()
         # =========================================================================================
 
         # Update the player paddle and opponent paddle's location on the screen
@@ -145,7 +190,9 @@ def playGame(screenWidth:int, screenHeight:int, playerPaddle:str, client:socket.
         pygame.draw.rect(screen, WHITE, topWall)
         pygame.draw.rect(screen, WHITE, bottomWall)
         scoreRect = updateScore(lScore, rScore, screen, WHITE, scoreFont)
-        pygame.display.update([topWall, bottomWall, ball, leftPaddle, rightPaddle, scoreRect, winMessage])
+        
+        # Update the entire display instead of just specific rectangles to prevent trails
+        pygame.display.flip()
         clock.tick(60)
         
         # This number should be synchronized between you and your opponent.  If your number is larger
@@ -161,34 +208,47 @@ def playGame(screenWidth:int, screenHeight:int, playerPaddle:str, client:socket.
 
 
 
-# This is where you will connect to the server to get the info required to call the game loop.  Mainly
-# the screen width, height and player paddle (either "left" or "right")
-# If you want to hard code the screen's dimensions into the code, that's fine, but you will need to know
-# which client is which
-def joinServer(ip:str, port:str, errorLabel:tk.Label, app:tk.Tk) -> None:
-    # Purpose:      This method is fired when the join button is clicked
-    # Arguments:
-    # ip            A string holding the IP address of the server
-    # port          A string holding the port the server is using
-    # errorLabel    A tk label widget, modify it's text to display messages to the user (example below)
-    # app           The tk window object, needed to kill the window
-    
-    # Create a socket and connect to the server
-    # You don't have to use SOCK_STREAM, use what you think is best
-    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
-    # Get the required information from your server (screen width, height & player paddle, "left or "right)
-
-
-    # If you have messages you'd like to show the user use the errorLabel widget like so
-    errorLabel.config(text=f"Some update text. You input: IP: {ip}, Port: {port}")
-    # You may or may not need to call this, depending on how many times you update the label
-    errorLabel.update()     
-
-    # Close this window and start the game with the info passed to you from the server
-    #app.withdraw()     # Hides the window (we'll kill it later)
-    #playGame(screenWidth, screenHeight, ("left"|"right"), client)  # User will be either left or right paddle
-    #app.quit()         # Kills the window
+# Author:  Example Author
+# Purpose: Connect to the Pong game server and start the game
+# Pre:     Valid IP address and port number provided
+# Post:    Client connects to server and starts game, or shows error
+def joinServer(ip: str, port: str, errorLabel: tk.Label, app: tk.Tk) -> None:
+    """
+    Connect to the game server and initialize the game with received configuration.
+    """
+    try:
+        # Create a socket and connect to the server
+        client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client.connect((ip, int(port)))
+        
+        # Get initial configuration from server
+        data = client.recv(1024).decode()
+        config = json.loads(data)
+        
+        # Extract configuration
+        screenWidth = config["screen_width"]
+        screenHeight = config["screen_height"]
+        playerPaddle = config["paddle"]
+        
+        # Update UI to show connection success
+        errorLabel.config(text=f"Connected successfully! You are the {playerPaddle} paddle.")
+        errorLabel.update()
+        
+        # Start the game
+        app.withdraw()     # Hide the window
+        playGame(screenWidth, screenHeight, playerPaddle, client)
+        app.quit()         # Kill the window
+        
+    except Exception as e:
+        # Show error message to user
+        errorLabel.config(text=f"Error connecting to server: {str(e)}")
+        errorLabel.update()
+        
+        # Close socket if connection failed
+        try:
+            client.close()
+        except:
+            pass
 
 
 # This displays the opening screen, you don't need to edit this (but may if you like)
@@ -196,7 +256,7 @@ def startScreen():
     app = tk.Tk()
     app.title("Server Info")
 
-    image = tk.PhotoImage(file="./assets/images/logo.png")
+    image = tk.PhotoImage(file=os.path.join(SCRIPT_DIR, "assets", "images", "logo.png"))
 
     titleLabel = tk.Label(image=image)
     titleLabel.grid(column=0, row=0, columnspan=2)
@@ -222,9 +282,7 @@ def startScreen():
     app.mainloop()
 
 if __name__ == "__main__":
-    #startScreen()
+    startScreen()
     
-    # Uncomment the line below if you want to play the game without a server to see how it should work
-    # the startScreen() function should call playGame with the arguments given to it by the server this is
-    # here for demo purposes only
-    playGame(640, 480,"left",socket.socket(socket.AF_INET, socket.SOCK_STREAM))
+    # Debug/demo line removed - we want to use the proper connection flow
+    # through startScreen() and joinServer()
