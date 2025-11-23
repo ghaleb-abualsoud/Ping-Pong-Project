@@ -87,4 +87,49 @@ Date: November 6, 2025
      * Player authentication
 
 === Project Status ===
-The project is now fully functional with all basic requirements implemented and major issues resolved. The code is well-documented and follows the specified coding style guidelines. The game is playable over a network with proper synchronization between clients.
+The project is now functional with all basic requirements implemented 
+
+Date: November 13-22, 2025
+(The game loved to break after fixing or adding something)
+
+=== Recent Work Summary (Nov 2025) ===
+
+Added features
+- Two-player simultaneous play: server accepts two clients and assigns left/right paddles.
+- Authoritative server game loop: server computes ball physics, collisions, scoring, and increments a `sync_counter`.
+- Newline-delimited JSON framing: switched client/server messaging to newline-terminated JSON and added buffering to avoid partial/concatenated JSON parsing errors.
+- Client network thread: moved client network I/O into a background thread so the Pygame main loop never blocks on socket I/O.
+- Socket timeouts and robustness: client and server sockets use short timeouts and handle `socket.timeout` to avoid GUI freezes and blocking operations.
+- Rematch flow: implemented `game_over` detection, `rematch_votes`, and a rematch waiting period with unanimous yes required to restart. Added rematch timeout and graceful shutdown behavior.
+- Failure counters: per-client send-failure counters to avoid dropping clients on a single transient error.
+- Telemetry/logging: added debug prints for bounces, scores, and server sync receipts to facilitate debugging.
+- UI text fix: added `uiFont` and used a font that supports letters for rematch instructions (fixed garbled symbols).
+
+Bugs found and fixed
+- NameError for missing `time` import: added `import time` at top of server.
+- JSON "Extra data" errors: fixed by switching to newline-delimited JSON framing and buffering on both sides.
+- Pygame window "Not Responding": solved by using socket timeouts and moving client network I/O into a background thread.
+- Deadlock in `reset_ball`: removed nested lock acquisition (the function now assumes caller holds lock) to avoid re-entrant locking deadlocks.
+- WinError 10038 (operation on non-socket) during rematch/shutdown: fixed by catching `OSError` in client handlers and by avoiding immediate socket closes from main thread after a restart.
+- KeyError in `broadcast_state` on client failure accounting: use `self.client_failures.get(c, 0)`.
+- Rematch vote persistence: server now clears `rematch_votes` on restart; clients only send rematch when player explicitly requests it and clear local vote after server restarts the match.
+
+Design and reliability notes
+- Message framing: newline-delimited JSON is used to delimit messages over TCP; handlers maintain receive buffers and parse complete lines.
+- Concurrency model: server uses threads (per-client handler + authoritative game_loop); critical sections are protected by `self.lock`.
+- Shutdown sequence: server attempts graceful shutdown by setting `server_shutting_down` then calling `shutdown()` on sockets to unblock handlers; handlers catch `OSError` and exit cleanly.
+- Future improvements: introduce a lobby state instead of shutting down on rematch declines, add client interpolation/prediction for smoother visuals, and add a reconnection mechanism.
+
+Testing notes and how to reproduce
+- Start server: `python .\pong\pongServer.py` (from project root or `pong` folder).
+- Start two clients (in separate terminals): `python .\pong\pongClient.py` and use GUI to connect to `127.0.0.1:12345` for local tests.
+- Play until a side wins to trigger rematch flow; test three cases: both press R -> restart, one declines -> server shuts down, timeout -> server shuts down.
+- Watch server logs (bounces, Score left/right, Game over, Rematch votes) to verify proper behavior.
+
+Developer notes
+- When changing networking behavior, always update both client and server message framing together to avoid parse errors.
+- Keep network I/O out of the Pygame main thread — use a small shared state protected by a lock for minimal synchronization.
+- Use `socket.settimeout()` with short timeouts to keep handlers responsive.
+- Prefer `dict.get(key, default)` when client objects are used as keys in bookkeeping dicts to avoid KeyError during concurrent removals.
+
+=== End Recent Work Summary ===

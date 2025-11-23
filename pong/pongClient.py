@@ -1,6 +1,6 @@
 # =================================================================================================
-# Contributing Authors:	    Example Author
-# Email Addresses:          example@uky.edu
+# Contributing Authors:	    Ghaleb Abualsoud, Mustafa Akhtar
+# Email Addresses:          gab230@uky.edu, maak222@uky.edu
 # Date:                     November 6, 2025
 # Purpose:                  Client implementation for the multiplayer Pong game. This client handles
 #                          user input, displays the game state, and communicates with the server.
@@ -10,7 +10,9 @@ import pygame
 import tkinter as tk
 import sys
 import socket
+import threading
 import json
+import traceback
 import os
 from typing import Optional, Dict, Any, Tuple
 
@@ -38,6 +40,8 @@ def playGame(screenWidth: int, screenHeight: int, playerPaddle: str, client: soc
     clock = pygame.time.Clock()
     scoreFont = pygame.font.Font(os.path.join(SCRIPT_DIR, "assets", "fonts", "pong-score.ttf"), 32)
     winFont = pygame.font.Font(os.path.join(SCRIPT_DIR, "assets", "fonts", "visitor.ttf"), 48)
+    # UI font for short text (uses a font that includes letters/symbols)
+    uiFont = pygame.font.Font(os.path.join(SCRIPT_DIR, "assets", "fonts", "visitor.ttf"), 24)
     pointSound = pygame.mixer.Sound(os.path.join(SCRIPT_DIR, "assets", "sounds", "point.wav"))
     bounceSound = pygame.mixer.Sound(os.path.join(SCRIPT_DIR, "assets", "sounds", "bounce.wav"))
 
@@ -71,6 +75,97 @@ def playGame(screenWidth: int, screenHeight: int, playerPaddle: str, client: soc
 
     sync = 0
 
+    # Shared networking state between main thread (render/input) and network thread
+    net_state = {
+        "send": {"paddle_pos": playerPaddleObj.rect.y, "paddle_moving": playerPaddleObj.moving, "sync": sync},
+        "recv": None,
+        "last_server_sync": -1,
+        "lock": threading.Lock(),
+        "running": True,
+        # rematch_request: None = no vote yet, True = requested
+        "rematch_request": None
+    }
+    # local UI state
+    game_over_local = False
+    winner_local: Optional[str] = None
+    rematch_requested_local = False
+
+    def network_thread(sock: socket.socket, state: dict) -> None:
+        buf = ""
+        while state["running"]:
+            # prepare and send latest paddle state
+            with state["lock"]:
+                to_send = state["send"].copy()
+                # include rematch request flag only if player explicitly voted
+                if state.get("rematch_request") is not None:
+                    to_send["rematch"] = state.get("rematch_request")
+            try:
+                sock.send((json.dumps(to_send) + "\n").encode())
+            except socket.timeout:
+                # skip this send; try again next tick
+                pass
+            except ConnectionResetError:
+                print("Network thread: connection reset by peer")
+                state["running"] = False
+                break
+            except Exception as e:
+                print(f"Network thread send exception: {e}")
+                traceback.print_exc()
+                # don't stop immediately; allow transient errors to recover
+                try:
+                    threading.Event().wait(0.05)
+                except Exception:
+                    pass
+
+            # read any available data (non-blocking via timeout)
+            try:
+                data = sock.recv(8192).decode()
+            except socket.timeout:
+                data = ""
+            except ConnectionResetError:
+                print("Network thread: connection reset by peer (recv)")
+                state["running"] = False
+                break
+            except Exception as e:
+                print(f"Network thread recv exception: {e}")
+                traceback.print_exc()
+                try:
+                    threading.Event().wait(0.05)
+                except Exception:
+                    pass
+                continue
+
+            if data:
+                buf += data
+                while "\n" in buf:
+                    line, buf = buf.split("\n", 1)
+                    if not line:
+                        continue
+                    try:
+                        server_state = json.loads(line)
+                    except Exception:
+                        continue
+                    with state["lock"]:
+                        state["recv"] = server_state
+                        try:
+                            state["last_server_sync"] = int(server_state.get("sync", state.get("last_server_sync", -1)))
+                        except Exception:
+                            pass
+                    print(f"Network thread: received server sync={state.get('last_server_sync')} ball={server_state.get('ball')}")
+
+            # sleep a bit to avoid tight loop; match ~30-60Hz
+            time_sleep = 1.0 / 60.0
+            try:
+                threading.Event().wait(time_sleep)
+            except Exception:
+                pass
+
+    # start network thread
+    net_thread = threading.Thread(target=network_thread, args=(client, net_state), daemon=True)
+    net_thread.start()
+
+    recv_buffer = ""
+
     while True:
         # Wiping the screen
         screen.fill((0,0,0))
@@ -86,50 +181,81 @@ def playGame(screenWidth: int, screenHeight: int, playerPaddle: str, client: soc
 
                 elif event.key == pygame.K_UP:
                     playerPaddleObj.moving = "up"
+                elif event.key == pygame.K_r:
+                    # request rematch when game over
+                    if game_over_local:
+                        with net_state["lock"]:
+                            net_state["rematch_request"] = True
+                        rematch_requested_local = True
+                elif event.key == pygame.K_q:
+                    # quit
+                    pygame.quit()
+                    sys.exit()
 
             elif event.type == pygame.KEYUP:
                 playerPaddleObj.moving = ""
 
         # =========================================================================================
-        # Send game state update to server
-        try:
-            # Prepare update for server
-            game_update = {
-                "paddle_pos": playerPaddleObj.rect.y,
-                "paddle_moving": playerPaddleObj.moving,
-                "sync": sync
-            }
-            
-            # Send update to server
-            client.send(json.dumps(game_update).encode())
-            
-            # Receive server response
-            data = client.recv(1024).decode()
-            server_state = json.loads(data)
-            
-            # Update opponent paddle position
-            opponentPaddleObj.rect.y = server_state["paddles"]["right" if playerPaddle == "left" else "left"]["position"]
-            opponentPaddleObj.moving = server_state["paddles"]["right" if playerPaddle == "left" else "left"]["moving"]
-            
-            # Update ball position if we're behind
-            if server_state["sync"] > sync:
-                ball.rect.x = server_state["ball"]["x"]
-                ball.rect.y = server_state["ball"]["y"]
-                ball.xVel = server_state["ball"]["x_vel"]
-                ball.yVel = server_state["ball"]["y_vel"]
-                sync = server_state["sync"]
-                
-                # Update scores from server state
-                if "scores" in server_state:
-                    if lScore != server_state["scores"]["left"] or rScore != server_state["scores"]["right"]:
-                        lScore = server_state["scores"]["left"]
-                        rScore = server_state["scores"]["right"]
-                        pointSound.play()
-                    
-        except Exception as e:
-            print(f"Network error: {str(e)}")
-            pygame.quit()
-            sys.exit()
+        # Update shared send state for network thread
+        with net_state["lock"]:
+            net_state["send"]["paddle_pos"] = playerPaddleObj.rect.y
+            net_state["send"]["paddle_moving"] = playerPaddleObj.moving
+            net_state["send"]["sync"] = sync
+
+        # Read latest server state (if any) provided by network thread and apply only when
+        # the server sync counter has advanced since last applied state.
+        server_state = None
+        server_sync = -1
+        with net_state["lock"]:
+            server_state = net_state.get("recv")
+            server_sync = net_state.get("last_server_sync", -1)
+
+        if server_state is not None and server_sync != -1:
+            # apply only if this is a new server update
+            if server_sync != sync:
+                try:
+                    prev_game_over = game_over_local
+                    opponent_key = "right" if playerPaddle == "left" else "left"
+                    opponentPaddleObj.rect.y = server_state["paddles"][opponent_key]["position"]
+                    opponentPaddleObj.moving = server_state["paddles"][opponent_key]["moving"]
+
+                    # Update ball
+                    ball.rect.x = server_state["ball"]["x"]
+                    ball.rect.y = server_state["ball"]["y"]
+                    ball.xVel = server_state["ball"].get("x_vel", ball.xVel)
+                    ball.yVel = server_state["ball"].get("y_vel", ball.yVel)
+
+                    # Update scores
+                    if "scores" in server_state:
+                        if lScore != server_state["scores"]["left"] or rScore != server_state["scores"]["right"]:
+                            lScore = server_state["scores"]["left"]
+                            rScore = server_state["scores"]["right"]
+                            pointSound.play()
+
+                    # set local sync to server sync so we don't reapply
+                    sync = server_sync
+                    # mark the server update as consumed so we don't reapply the same state
+                    with net_state["lock"]:
+                        net_state["last_server_sync"] = sync
+                        net_state["recv"] = None
+                    # capture game over / winner info for UI
+                    game_over_local = bool(server_state.get("game_over", False))
+                    winner_local = server_state.get("winner")
+                    # if rematch was requested, show feedback
+                    if rematch_requested_local:
+                        print("Main: rematch requested; waiting for other player...")
+
+                    # If we transitioned from game_over -> not game_over, the server restarted the game.
+                    # Clear any local rematch request so we don't keep voting automatically for subsequent matches.
+                    if prev_game_over and not game_over_local:
+                        rematch_requested_local = False
+                        with net_state["lock"]:
+                            net_state["rematch_request"] = None
+
+                    print(f"Main: applied server sync={sync} ball=({ball.rect.x},{ball.rect.y}) scores=({lScore},{rScore}) game_over={game_over_local} winner={winner_local}")
+                except Exception:
+                    # malformed server data; ignore this frame
+                    pass
         # =========================================================================================
 
         # Update the player paddle and opponent paddle's location on the screen
@@ -141,43 +267,29 @@ def playGame(screenWidth: int, screenHeight: int, playerPaddle: str, client: soc
                 if paddle.rect.topleft[1] > 10:
                     paddle.rect.y -= paddle.speed
 
-        # If the game is over, display the win message
-        if lScore > 4 or rScore > 4:
-            winText = "Player 1 Wins! " if lScore > 4 else "Player 2 Wins! "
+        # If the game is over, display the win message + rematch options
+        if game_over_local:
+            if winner_local is not None:
+                winText = "You Win!" if (winner_local == playerPaddle) else "You Lose!"
+            else:
+                winText = "Game Over"
             textSurface = winFont.render(winText, False, WHITE, (0,0,0))
             textRect = textSurface.get_rect()
-            textRect.center = ((screenWidth/2), screenHeight/2)
+            textRect.center = ((screenWidth/2), screenHeight/2 - 24)
             winMessage = screen.blit(textSurface, textRect)
+
+            # rematch instructions
+            remText = "Press R to request rematch, Q to quit"
+            remSurface = uiFont.render(remText, False, WHITE, (0,0,0))
+            remRect = remSurface.get_rect()
+            remRect.center = ((screenWidth/2), screenHeight/2 + 24)
+            screen.blit(remSurface, remRect)
         else:
 
-            # ==== Ball Logic =====================================================================
-            ball.updatePos()
-
-            # If the ball makes it past the edge of the screen, update score, etc.
-            if ball.rect.x > screenWidth:
-                lScore += 1
-                pointSound.play()
-                ball.reset(nowGoing="left")
-            elif ball.rect.x < 0:
-                rScore += 1
-                pointSound.play()
-                ball.reset(nowGoing="right")
-                
-            # If the ball hits a paddle
-            if ball.rect.colliderect(playerPaddleObj.rect):
-                bounceSound.play()
-                ball.hitPaddle(playerPaddleObj.rect.center[1])
-            elif ball.rect.colliderect(opponentPaddleObj.rect):
-                bounceSound.play()
-                ball.hitPaddle(opponentPaddleObj.rect.center[1])
-                
-            # If the ball hits a wall
-            if ball.rect.colliderect(topWall) or ball.rect.colliderect(bottomWall):
-                bounceSound.play()
-                ball.hitWall()
-            
+            # Server authoritative ball: render only. Ball state is received from server
+            # when `server_state["sync"]` advances; between updates we render the
+            # last known ball position from the server.
             pygame.draw.rect(screen, WHITE, ball)
-            # ==== End Ball Logic =================================================================
 
         # Drawing the dotted line in the center
         for i in centerLine:
@@ -220,10 +332,24 @@ def joinServer(ip: str, port: str, errorLabel: tk.Label, app: tk.Tk) -> None:
         # Create a socket and connect to the server
         client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         client.connect((ip, int(port)))
+        # Use a short timeout so the Pygame main loop does not block waiting for network I/O
+        # increase slightly to reduce spurious timeouts during bursts
+        client.settimeout(0.1)
         
-        # Get initial configuration from server
-        data = client.recv(1024).decode()
-        config = json.loads(data)
+        # Get initial configuration from server (newline-delimited JSON)
+        recv_buf = ""
+        while True:
+            try:
+                chunk = client.recv(4096).decode()
+            except socket.timeout:
+                continue
+            if not chunk:
+                raise ConnectionError("Server closed connection before sending config")
+            recv_buf += chunk
+            if "\n" in recv_buf:
+                line, _ = recv_buf.split("\n", 1)
+                config = json.loads(line)
+                break
         
         # Extract configuration
         screenWidth = config["screen_width"]

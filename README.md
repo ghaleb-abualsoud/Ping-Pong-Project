@@ -2,20 +2,9 @@
 
 A networked implementation of the classic Pong game using Python and Pygame, featuring client-server architecture for multiplayer gameplay.
 
-# Contact Info
-============
-
-Group Members & Email Addresses:
-
-    Person 1, person1@uky.edu
-    Person 2, person2@uky.edu
-
-
-Github Link: 
-
 ## Requirements
 
-- Python 3.7 or higher (3.11 is ideal to prevent error with getting requirements to build wheel)
+- Python 3.7 or higher
 - Pygame 2.5.2
 - Network connectivity between server and clients
 
@@ -25,14 +14,6 @@ Github Link:
 2. Install the required dependencies:
 ```bash
 pip install -r requirements.txt
-
-or 
-
-py -3 -m pip install -r requirements.txt
-
-Or, if `python` is on your PATH:
-
-python -m pip install -r requirements.txt
 ```
 
 ## Running the Game
@@ -103,3 +84,28 @@ python pongClient.py
 - Currently supports exactly two players
 - No reconnection mechanism if a client disconnects
 - Server must be restarted for a new game
+
+## Server Behavior & Rematch
+
+- Server is authoritative: all physics (ball movement, collisions, scoring) are computed on the server. Clients render the authoritative state and only send paddle inputs.
+- Rematch flow: after a player reaches the win score, the server enters a rematch voting period (default 30 seconds). Both players must press `R` to agree to a rematch. If both agree the game restarts; if either player declines or the deadline expires the server will shut down. Rematch votes are cleared when a rematch restarts.
+
+## Running & Testing Notes
+
+- Run the server from the `pong` folder to ensure asset paths resolve correctly:
+```powershell
+cd pong
+python pongServer.py
+```
+- Local test: open two terminals, run `python pongClient.py` in each, and connect both clients to `127.0.0.1:12345`.
+- To exercise rematch behavior: play until one side wins, then press `R` on each client to vote for a rematch; check the server console for `Rematch vote` and `Game over` log lines.
+
+## Troubleshooting Additions
+
+- Garbled or symbol text for rematch instructions: ensure the fonts in `assets/fonts` are present and you're running the client from the `pong` directory (the client uses `SCRIPT_DIR` to find assets). The client now uses a UI font that supports letters.
+- If the Pygame window becomes "Not Responding", ensure the client is running the network thread (it does network I/O off the main thread) and that sockets are not blocked; restarting the client usually resolves transient issues.
+- If you see JSON parse errors like `Extra data`, confirm both client and server are up-to-date and using newline-delimited JSON framing (current code sends newline-terminated JSON and buffers on receive).
+
+## Development & Changelog
+
+See `development_log.txt` for a recent summary of implemented features, bug fixes, and testing notes (entry updated Nov 22, 2025).
