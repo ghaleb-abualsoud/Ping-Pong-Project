@@ -3,13 +3,13 @@ Contact Info
 
 Group Members & Email Addresses:
 
-    Person 1, person1@uky.edu
-    Person 2, person2@uky.edu
+    Ghaleb Abualsoud, gab230@uky.edu
+    Mustafa Akhtar, maak222@uky.edu
 
 Versioning
 ==========
 
-Github Link: 
+Github Link: https://github.com/ghaleb-abualsoud/Ping-Pong-Project
 
 General Info
 ============
