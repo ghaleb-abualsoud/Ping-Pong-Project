@@ -1,4 +1,5 @@
 # Multiplayer Pong Game
+https://github.com/ghaleb-abualsoud/Ping-Pong-Project
 
 A networked implementation of the classic Pong game using Python and Pygame, featuring client-server architecture for multiplayer gameplay.
 
@@ -107,5 +108,6 @@ python pongServer.py
 - If you see JSON parse errors like `Extra data`, confirm both client and server are up-to-date and using newline-delimited JSON framing (current code sends newline-terminated JSON and buffers on receive).
 
 ## Development & Changelog
+
 
 See `development_log.txt` for a recent summary of implemented features, bug fixes, and testing notes (entry updated Nov 22, 2025).
