@@ -12,7 +12,9 @@ A networked implementation of the classic Pong game using Python and Pygame, fea
 ## Installation
 
 1. Clone this repository or extract the provided zip file
-2. Install the required dependencies:
+
+   (Might not have to do this) 
+3. Install the required dependencies:
 ```bash
 pip install -r requirements.txt
 ```
@@ -111,3 +113,4 @@ python pongServer.py
 
 
 See `development_log.txt` for a recent summary of implemented features, bug fixes, and testing notes (entry updated Nov 22, 2025).
+
