@@ -6,7 +6,7 @@ A networked implementation of the classic Pong game using Python and Pygame, fea
 ## Requirements
 
 - Python 3.7 or higher
-- Pygame 2.5.2
+- Pygame 2.5.2 or higher
 - Network connectivity between server and clients
 
 ## Installation
@@ -113,4 +113,5 @@ python pongServer.py
 
 
 See `development_log.txt` for a recent summary of implemented features, bug fixes, and testing notes (entry updated Nov 22, 2025).
+
 
