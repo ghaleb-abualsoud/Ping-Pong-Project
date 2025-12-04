@@ -3,6 +3,7 @@ https://github.com/ghaleb-abualsoud/Ping-Pong-Project
 
 A networked implementation of the classic Pong game using Python and Pygame, featuring client-server architecture for multiplayer gameplay.
 
+If getting a error change the Pygame to 2.6.0 in the requirements.txt
 ## Requirements
 
 - Python 3.7 or higher
@@ -113,5 +114,6 @@ python pongServer.py
 
 
 See `development_log.txt` for a recent summary of implemented features, bug fixes, and testing notes (entry updated Nov 22, 2025).
+
 
 
